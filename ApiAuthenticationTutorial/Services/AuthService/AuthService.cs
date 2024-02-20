@@ -1,8 +1,7 @@
-﻿
-using Microsoft.IdentityModel.Tokens;
+﻿using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
+using System.Text;
 
 namespace ApiAuthenticationTutorial.Services.AuthService
 {
@@ -20,29 +19,29 @@ namespace ApiAuthenticationTutorial.Services.AuthService
         public async Task<ServiceResponse<string>> Login(string email, string password)
         {
             var response = new ServiceResponse<string>();
-            
-            var user = await _context.Users.FirstOrDefaultAsync(x => x.Email.ToLower().Equals(email.ToLower()));
+
+            var user = await _context.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == email.ToLower());
             if (user == null)
             {
                 response.IsSuccess = false;
                 response.Message = "User not found";
+                return response;
             }
-            else if(!VerifyPasswordHash(password, user.PasswordHash, user.PasswordSalt))
+
+            if (!VerifyPasswordHash(password, user.PasswordHash))
             {
-                response.IsSuccess=false;
-                response.Message = "Incorrect Username and or password";
+                response.IsSuccess = false;
+                response.Message = "Incorrect password";
+                return response;
             }
-            else
-            {
-                response.Data = CreateToken(user);
-            }           
-            
+
+            response.Data = CreateToken(user);
             return response;
         }
 
         public async Task<ServiceResponse<int>> Register(User user, string password)
         {
-            if(await UserExists(user.Email))
+            if (await UserExists(user.Email))
             {
                 return new ServiceResponse<int>
                 {
@@ -51,9 +50,7 @@ namespace ApiAuthenticationTutorial.Services.AuthService
                 };
             }
 
-            CreatePasswordHash(password, out byte[] passwordHash, out byte[] passwordSalt);
-            user.PasswordHash = passwordHash;
-            user.PasswordSalt = passwordSalt;
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password, BCrypt.Net.BCrypt.GenerateSalt(12));
 
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
@@ -68,59 +65,60 @@ namespace ApiAuthenticationTutorial.Services.AuthService
 
         public async Task<bool> UserExists(string email)
         {
-            if(await _context.Users.AnyAsync(user=>user.Email.ToLower()
-                .Equals(email.ToLower())))
-            {
-                return true;
-            }
-            return false;
+            return await _context.Users.AnyAsync(user => user.Email.ToLower() == email.ToLower());
         }
 
-        private void CreatePasswordHash(string password, out byte[] passwordHash, out byte[] passwordSalt)
+        private bool VerifyPasswordHash(string password, string passwordHash)
         {
-            using(var hmac = new HMACSHA512())
-            {
-                passwordSalt = hmac.Key;
-                passwordHash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));  
-            }
+            return BCrypt.Net.BCrypt.Verify(password, passwordHash);
         }
-        
-        private bool VerifyPasswordHash(string password, byte[] passwordHash, byte[] passwordSalt)
+
+        private string GetIssuer()
         {
-            using(var hmac = new HMACSHA512(passwordSalt))
-            {
-                var computedHash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
-                return computedHash.SequenceEqual(passwordHash); 
-            }  
+            return _configuration["Jwt:Issuer"];
+        }
+
+        private string GetAudience()
+        {
+            return _configuration["Jwt:Audience"];
+        }
+
+        private SymmetricSecurityKey GetSecretKey()
+        {
+            var secret = _configuration["Jwt:Secret"];
+            var secretBytes = Encoding.UTF8.GetBytes(secret);
+            return new SymmetricSecurityKey(secretBytes);
         }
 
         private string CreateToken(User user)
         {
-            List<Claim> claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Name, user.Email),
-            };
+            var signingCredentials = new SigningCredentials(GetSecretKey(), SecurityAlgorithms.HmacSha256Signature);
 
-            var key = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(_configuration.GetSection("AppSettings:Token").Value));
+            var claims = new List<Claim>
+    {
+        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new Claim(ClaimTypes.Name, user.Email)
+    };
 
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512Signature);
+            var expires = DateTime.UtcNow.AddHours(1);
 
             var token = new JwtSecurityToken(
-                claims: claims,
-                expires: DateTime.Now.AddDays(1),
-                signingCredentials: creds
-                );
+                issuer: GetIssuer(),
+                audience: GetAudience(),
+                expires: expires,
+                signingCredentials: signingCredentials,
+                claims: claims
+            );
 
-            var jwt = new JwtSecurityTokenHandler().WriteToken(token);
-            
-            return jwt;
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
+
+
 
         public async Task<ServiceResponse<bool>> ChangePassword(int userId, string newPassword)
         {
-            var user = await _context.Users.FindAsync(userId);  
-            if(user == null)
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
             {
                 return new ServiceResponse<bool>
                 {
@@ -129,9 +127,7 @@ namespace ApiAuthenticationTutorial.Services.AuthService
                 };
             }
 
-            CreatePasswordHash(newPassword, out byte[] passwordHash, out byte[] passwordSalt);
-            user.PasswordHash = passwordHash;
-            user.PasswordSalt = passwordSalt;
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword, BCrypt.Net.BCrypt.GenerateSalt(12));
 
             await _context.SaveChangesAsync();
 
