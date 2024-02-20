@@ -1,6 +1,9 @@
 global using ApiAuthenticationTutorial.Models;
 global using Microsoft.EntityFrameworkCore;
-using ApiAuthenticationTutorial.Data;
+global using ApiAuthenticationTutorial.Services.UserServices;
+global using ApiAuthenticationTutorial.Data;
+global using ApiAuthenticationTutorial.Services.AuthService;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +16,8 @@ builder.Services.AddDbContext<DataContext>(options =>
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 var app = builder.Build();
 
