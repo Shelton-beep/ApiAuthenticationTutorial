@@ -33,6 +33,7 @@ namespace ApiAuthenticationTutorial.Services.AuthService
             {
                 IsSuccess = true,
                 Data = user.Id,
+                Message = "Created new user"
             };
         }
 
