@@ -1,5 +1,7 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ApiAuthenticationTutorial.Controllers
 {
@@ -37,6 +39,19 @@ namespace ApiAuthenticationTutorial.Controllers
             if (!response.IsSuccess)
             {
                 return BadRequest(response);
+            }
+            return Ok(response);
+        }
+
+        [HttpPost("change-password"), Authorize]
+
+        public async Task<ActionResult<ServiceResponse<bool>>> ChangePassword([FromBody] string newPassword)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var response = await _authService.ChangePassword(int.Parse(userId), newPassword);
+            if (!response.IsSuccess)
+            {
+                return BadRequest(response);    
             }
             return Ok(response);
         }
